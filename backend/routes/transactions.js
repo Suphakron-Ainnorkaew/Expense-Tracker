@@ -2,13 +2,70 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 
+// Update savings goal
+router.put('/savings-goals/:id', async (req, res) => {
+  const { amount, months, description } = req.body;
+  try {
+    const [result] = await db.query(
+      'UPDATE savings_goals SET amount=?, months=?, description=? WHERE id=?',
+      [amount, months, description, req.params.id]
+    );
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete savings goal
+router.delete('/savings-goals/:id', async (req, res) => {
+  try {
+    const [result] = await db.query('DELETE FROM savings_goals WHERE id=?', [req.params.id]);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update transaction
+router.put('/:id', async (req, res) => {
+  const { category, amount, currency, description, date } = req.body;
+  try {
+    const [result] = await db.query(
+      'UPDATE transactions SET category=?, amount=?, currency=?, description=?, date=? WHERE id=?',
+      [category, amount, currency, description, date, req.params.id]
+    );
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete transaction
+router.delete('/:id', async (req, res) => {
+  try {
+    const [result] = await db.query('DELETE FROM transactions WHERE id=?', [req.params.id]);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get all transactions
 router.get('/', async (req, res) => {
   try {
     console.log('GET /api/transactions - Query:', req.query);
     const [rows] = await db.query('SELECT * FROM transactions WHERE user_id = ?', [req.query.userId]);
+    // Summary for all types
+    const [summary] = await db.query(
+      `SELECT 
+        SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as income,
+        SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as expense,
+        SUM(CASE WHEN type = 'investor' THEN amount ELSE 0 END) as investor
+      FROM transactions WHERE user_id = ?`,
+      [req.query.userId]
+    );
     console.log('Transactions fetched:', rows);
-    res.json(rows);
+    res.json({ transactions: rows, summary: summary[0] });
   } catch (error) {
     console.error('Error in GET /api/transactions:', error);
     res.status(500).json({ error: error.message });
@@ -99,10 +156,15 @@ router.post('/simulate', async (req, res) => {
   try {
     console.log('POST /api/transactions/simulate - Body:', req.body);
     const [summary] = await db.query(
-      'SELECT SUM(CASE WHEN type = "income" THEN amount ELSE 0 END) as income, SUM(CASE WHEN type = "expense" THEN amount ELSE 0 END) as expense FROM transactions WHERE user_id = ?',
+      `SELECT 
+        SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as income,
+        SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as expense,
+        SUM(CASE WHEN type = 'investor' THEN amount ELSE 0 END) as investor
+      FROM transactions WHERE user_id = ?`,
       [user_id]
     );
-    const currentBalance = (summary[0].income || 0) - (summary[0].expense || 0);
+    // คงเหลือ = รายรับ - รายจ่าย - เงินลงทุน
+    const currentBalance = (summary[0].income || 0) - (summary[0].expense || 0) - (summary[0].investor || 0);
     const simulatedBalance = currentBalance - (parseFloat(newExpense) || 0);
 
     res.json({

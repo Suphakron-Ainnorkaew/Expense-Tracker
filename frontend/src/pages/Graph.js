@@ -23,11 +23,13 @@ ChartJS.register(
 function Graph({ user }) {
   const [transactions, setTransactions] = useState([]);
   const [timeFrame, setTimeFrame] = useState('month');
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0'));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [summary, setSummary] = useState({
     totalIncome: 0,
     totalExpense: 0,
+    totalInvestment: 0,
     balance: 0
   });
 
@@ -43,21 +45,40 @@ function Graph({ user }) {
       }
       
       const data = await response.json();
-      setTransactions(data);
+      
+      // Extract transactions from the response
+      const transactionsArray = data.transactions || (Array.isArray(data) ? data : []);
+      setTransactions(transactionsArray);
+      
+      // Filter transactions by selected month if timeFrame is 'month'
+      const filteredTransactionsForSummary = timeFrame === 'month' 
+        ? transactionsArray.filter(t => {
+            if (!t || !t.date) return false;
+            const transactionDate = new Date(t.date);
+            const selectedDate = new Date(selectedMonth + '-01');
+            return transactionDate.getFullYear() === selectedDate.getFullYear() && 
+                   transactionDate.getMonth() === selectedDate.getMonth();
+          })
+        : transactionsArray;
       
       // Calculate summary data
-      const totalIncome = data
-        .filter(t => t.type === 'income')
-        .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+      const totalIncome = filteredTransactionsForSummary
+        .filter(t => t && t.type === 'income')
+        .reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
         
-      const totalExpense = data
-        .filter(t => t.type === 'expense')
-        .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+      const totalExpense = filteredTransactionsForSummary
+        .filter(t => t && t.type === 'expense')
+        .reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+        
+      const totalInvestment = filteredTransactionsForSummary
+        .filter(t => t && t.type === 'investor')
+        .reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
         
       setSummary({
         totalIncome,
         totalExpense,
-        balance: totalIncome - totalExpense
+        totalInvestment,
+        balance: totalIncome - totalExpense - totalInvestment
       });
       
       setError(null);
@@ -72,22 +93,41 @@ function Graph({ user }) {
     if (user) {
       fetchTransactions();
     }
-  }, [user, timeFrame]);
+  }, [user, timeFrame, selectedMonth]);
 
   const processData = () => {
     const incomeData = {};
     const expenseData = {};
+    const investmentData = {};
     let labels = [];
 
+    // Ensure transactions is an array
+    const transactionsArray = Array.isArray(transactions) ? transactions : [];
+
+    // Filter transactions by selected month if timeFrame is 'month'
+    const filteredTransactions = timeFrame === 'month' 
+      ? transactionsArray.filter(t => {
+          if (!t || !t.date) return false;
+          const transactionDate = new Date(t.date);
+          const selectedDate = new Date(selectedMonth + '-01');
+          return transactionDate.getFullYear() === selectedDate.getFullYear() && 
+                 transactionDate.getMonth() === selectedDate.getMonth();
+        })
+      : transactionsArray;
+
     // Format Thai-style labels based on timeframe
-    transactions.forEach(t => {
+    filteredTransactions.forEach(t => {
+      if (!t || !t.date) return; // Skip invalid transactions
+      
       const date = new Date(t.date);
+      if (isNaN(date.getTime())) return; // Skip invalid dates
+      
       let key;
       
       if (timeFrame === 'day') {
         key = date.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
       } else if (timeFrame === 'month') {
-        key = date.toLocaleDateString('th-TH', { month: 'short', year: '2-digit' });
+        key = date.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
       } else if (timeFrame === 'quarter') {
         const quarter = Math.floor(date.getMonth() / 3) + 1;
         const year = date.getFullYear();
@@ -98,10 +138,14 @@ function Graph({ user }) {
 
       if (!labels.includes(key)) labels.push(key);
 
+      const amount = parseFloat(t.amount || 0);
+      
       if (t.type === 'income') {
-        incomeData[key] = (incomeData[key] || 0) + parseFloat(t.amount);
-      } else {
-        expenseData[key] = (expenseData[key] || 0) + parseFloat(t.amount);
+        incomeData[key] = (incomeData[key] || 0) + amount;
+      } else if (t.type === 'expense') {
+        expenseData[key] = (expenseData[key] || 0) + amount;
+      } else if (t.type === 'investor') {
+        investmentData[key] = (investmentData[key] || 0) + amount;
       }
     });
 
@@ -142,6 +186,13 @@ function Graph({ user }) {
           data: labels.map(label => expenseData[label] || 0),
           backgroundColor: 'rgba(239, 68, 68, 0.6)',
           borderColor: 'rgba(239, 68, 68, 1)',
+          borderWidth: 1,
+        },
+        {
+          label: 'ลงทุน',
+          data: labels.map(label => investmentData[label] || 0),
+          backgroundColor: 'rgba(59, 130, 246, 0.6)',
+          borderColor: 'rgba(59, 130, 246, 1)',
           borderWidth: 1,
         },
       ],
@@ -259,7 +310,7 @@ function Graph({ user }) {
               ลองอีกครั้ง
             </button>
           </div>
-        ) : transactions.length === 0 ? (
+        ) : !Array.isArray(transactions) || transactions.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
             <FileText className="w-12 h-12 mx-auto mb-2 text-gray-300" />
             <p>ยังไม่มีรายการธุรกรรม</p>
@@ -270,7 +321,7 @@ function Graph({ user }) {
         ) : (
           <div className="p-4">
             {/* Summary Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
               <div className="bg-green-50 rounded-lg p-4 border border-green-100">
                 <div className="text-sm text-gray-600 mb-1">รายรับทั้งหมด</div>
                 <div className="text-xl font-semibold text-green-600">
@@ -281,6 +332,12 @@ function Graph({ user }) {
                 <div className="text-sm text-gray-600 mb-1">รายจ่ายทั้งหมด</div>
                 <div className="text-xl font-semibold text-red-600">
                   {summary.totalExpense.toLocaleString('th-TH')} บาท
+                </div>
+              </div>
+              <div className="bg-blue-50 rounded-lg p-4 border border-blue-100">
+                <div className="text-sm text-gray-600 mb-1">ลงทุนทั้งหมด</div>
+                <div className="text-xl font-semibold text-blue-600">
+                  {summary.totalInvestment.toLocaleString('th-TH')} บาท
                 </div>
               </div>
               <div className={`rounded-lg p-4 border ${summary.balance >= 0 ? 'bg-blue-50 border-blue-100' : 'bg-orange-50 border-orange-100'}`}>
@@ -341,10 +398,31 @@ function Graph({ user }) {
               </div>
             </div>
 
+            {/* Month Selector */}
+            {timeFrame === 'month' && (
+              <div className="mb-6">
+                <div className="flex items-center mb-2 text-sm text-gray-600">
+                  <CalendarIcon className="w-4 h-4 mr-1" />
+                  <span>เลือกเดือน</span>
+                </div>
+                <input
+                  type="month"
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(e.target.value)}
+                  className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                />
+              </div>
+            )}
+
             {/* Chart Title */}
             <div className="text-center mb-4">
               <h3 className="text-lg font-medium">
-                กราฟเปรียบเทียบรายรับรายจ่าย{getThaiTimeFrameName()}
+                กราฟเปรียบเทียบรายรับรายจ่ายและลงทุน{getThaiTimeFrameName()}
+                {timeFrame === 'month' && (
+                  <span className="text-gray-600 ml-2">
+                    ({new Date(selectedMonth + '-01').toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })})
+                  </span>
+                )}
               </h3>
             </div>
             
@@ -355,7 +433,7 @@ function Graph({ user }) {
 
             {/* Chart Legend & Info */}
             <div className="text-center text-sm text-gray-500 bg-gray-50 rounded-lg p-3 mt-4">
-              แสดงข้อมูลรายรับ (สีเขียว) และรายจ่าย (สีแดง) ตามช่วงเวลาที่เลือก
+              แสดงข้อมูลรายรับ (สีเขียว) รายจ่าย (สีแดง) และลงทุน (สีน้ำเงิน) ตามช่วงเวลาที่เลือก
             </div>
           </div>
         )}
