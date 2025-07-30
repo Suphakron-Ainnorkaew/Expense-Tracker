@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { PlusCircle, MinusCircle, Calendar, DollarSign, Tag, FileText, AlertTriangle, Edit2, Trash2, X, Utensils, Home as HomeIcon, Bus, ShoppingBag, Film, Heart, Book, Gift, Briefcase, PiggyBank, Bitcoin, Building2, Coins, Trophy, Apple, Car, Plane, Smartphone, Shirt, ShoppingCart, Banknote, Wallet, TrendingUp, Users, Star } from 'lucide-react';
+import { PlusCircle, MinusCircle, Calendar, DollarSign, Tag, FileText, AlertTriangle, Edit2, Trash2, X, Utensils, Home as HomeIcon, Bus, ShoppingBag, Film, Heart, Book, Gift, Briefcase, PiggyBank, Bitcoin, Building2, Coins, Trophy, Car, Plane, Smartphone, Shirt, ShoppingCart, Banknote, Wallet, TrendingUp, Star, Check } from 'lucide-react';
 import CategoryDropdown from '../components/CategoryDropdown';
 
 function Home({ user }) {
@@ -232,6 +232,26 @@ function Home({ user }) {
     setShowDeleteModal(true);
   };
 
+  const handleCompleteGoal = async (goal) => {
+    if (!window.confirm('คุณต้องการทำเครื่องหมายเป้าหมายนี้ว่าสำเร็จและถอนเงินออมใช่หรือไม่?')) return;
+    try {
+      const response = await fetch(`http://localhost:5000/api/transactions/savings-goals/${goal.id}/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: user.id }),
+      });
+      if (response.ok) {
+        await fetchSavingsGoals();
+        await fetchTransactions();
+      } else {
+        const data = await response.json();
+        alert('เกิดข้อผิดพลาด: ' + (data.error || 'ลองใหม่อีกครั้ง'));
+      }
+    } catch (error) {
+      alert('เกิดข้อผิดพลาดในการทำเครื่องหมายสำเร็จ');
+    }
+  };
+
   const confirmDelete = async () => {
     try {
       if (deleteType === 'transaction' && deleteTransactionId) {
@@ -268,10 +288,7 @@ function Home({ user }) {
     setDeleteType(null);
   };
 
-  console.log('transactions', transactions, 'filter', filter);
-  const filteredTransactions = Array.isArray(transactions)
-    ? (filter === 'all' ? transactions : transactions.filter(t => t.type === filter))
-    : [];
+
 
   // เพิ่มหมวดหมู่ใหม่และหลากหลายขึ้น
   const categories = {
@@ -700,6 +717,14 @@ function Home({ user }) {
                                 title="แก้ไข"
                               >
                                 <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                className="text-green-600 hover:text-green-800 transition-colors rounded-full p-2 bg-green-50 hover:bg-green-100 shadow"
+                                onClick={() => handleCompleteGoal(goal)}
+                                type="button"
+                                title="สำเร็จ"
+                              >
+                                <Check className="w-4 h-4" /> สำเร็จ
                               </button>
                               <button
                                 className="text-red-500 hover:text-red-700 transition-colors rounded-full p-2 bg-red-50 hover:bg-red-100 shadow"
